@@ -53,11 +53,12 @@ boolean playSound(char* soundFile) {
   return true;
 }
 void safeStop() {
+  return;
   int isPlaying = digitalRead(SFX_ACT);
   if (isPlaying == LOW) {
     debugPrintLn("trying to stop sounds");
     if(!sfx.stop()) {
-      safeStop();
+        debugPrintLn("stop cmd failed");  
     }
   }
 }
@@ -143,6 +144,7 @@ enum Phase { WALK, FINISH_WALKING, DONT_WALK };
 
 Phase currentPhase = DONT_WALK;
 void loop() {
+  delay(10);
   //checkActPin();
   updateWaitButtonPressedState();
   if(shouldChangePhases()) {
@@ -165,6 +167,10 @@ void initWalkPhase() {
    lastBeepTime = millis();
 }
 void walkPhase() {
+  if(waitButtonWasPressed) { 
+     playSound(beginCrossingVoice);
+     lastBeepTime = millis();   
+  }
   if(millis() - lastBeepTime > BEEP_DELAY) {
     playSound(beep1);
     lastBeepTime = millis();
