@@ -1,4 +1,4 @@
-#define DEBUG 1
+//#define DEBUG 1
 
 #include <Adafruit_Soundboard.h>
 #include <Wire.h>
@@ -11,13 +11,22 @@
 #define WALK_PIN 50
 #define DWALK_PIN 52
 
+#define PUSH_BUTTON_PIN A7
 
 //sound files
-char doorClosingFile[] = "CLSEDOORWAV";
-char nudgeModeFile[] = "NUDGEMDEOGG";
-char helpFireFile[] = "HELPFIREWAV";
-char normalChimeFile[] = "PASSCHMEWAV";
-char dieselDucyFile[] = "DIESELDUWAV";
+
+char beginCrossingVoice[] = "VBEG_CRSOGG";
+char finCrossingVoice[]   = "VFIN_CRSOGG";
+
+char waitVoices[4][12] = {
+                            "VWAIT   OGG",
+                            "VWAT2CRSOGG",
+                            "VWAT_LNGOGG",
+                            "VPLS_WATOGG" 
+};
+char beep1[]              = "BEEP_1  OGG";
+char beep2[]              = "BEEP_2  OGG";
+char beep3[]              = "BEEP_3  OGG";
 
 //Soundboard
 Adafruit_Soundboard sfx = Adafruit_Soundboard(&Serial1, &Serial, SFX_RST);
@@ -33,13 +42,39 @@ void debugPrintLn(const char* fmt, ...) {
   #endif
 }
 
-
+boolean playSound(char* soundFile) {
+  debugPrintLn("attempting to play sound %s ", soundFile);
+  safeStop();
+  
+  if(!sfx.playTrack(soundFile)) {
+    debugPrintLn("failed to play sound %s ", soundFile);
+    return false;
+  }
+  return true;
+}
+void safeStop() {
+  int isPlaying = digitalRead(SFX_ACT);
+  if (isPlaying == LOW) {
+    debugPrintLn("trying to stop sounds");
+    if(!sfx.stop()) {
+      safeStop();
+    }
+  }
+}
+void checkActPin() {
+  int isPlaying = digitalRead(SFX_ACT);
+  debugPrintLn("isPlaying %d", isPlaying);
+}
+boolean waitButtonIsPressed() {
+  int result = digitalRead(PUSH_BUTTON_PIN);
+  return result == 0;
+}
 void powerHand(boolean on) {
-  debugPrintLn("Powering Hand %d", on);
+  //debugPrintLn("Powering Hand %d", on);
   digitalWrite(DWALK_PIN, on ? HIGH : LOW);
 }
 void powerMan(boolean on) {
-  debugPrintLn("Powering Man %d", on);
+  //debugPrintLn("Powering Man %d", on);
   digitalWrite(WALK_PIN, on ? HIGH : LOW);
 }
 void setup() {
@@ -51,16 +86,20 @@ void setup() {
   //Soundboard init
   Serial1.begin(9600); 
   
-  //if (!sfx.reset()) {
-  //  while (1); //Hang if the soundboard could not be reset successfully 
-  //}
+  if (!sfx.reset()) {
+    while (1); //Hang if the soundboard could not be reset successfully 
+  }
 
   //Configure the activity detection pin for the sfx card - this is a workaround to be able to send a 'stop' command if a sound is currently playing
   pinMode(SFX_ACT, INPUT_PULLUP);
 
+
+  
   pinMode(WALK_PIN, OUTPUT);
   pinMode(DWALK_PIN, OUTPUT);
 
+
+  pinMode(PUSH_BUTTON_PIN, INPUT_PULLUP);
 
   //Start init sequence for pedestrian signal device
   powerHand(false);
@@ -75,15 +114,37 @@ void setup() {
 
 
 
+boolean lastPressedState;
+boolean waitButtonWasPressed;
+void updateWaitButtonPressedState() {
+  waitButtonWasPressed = false;
+  if(waitButtonIsPressed() ) {
+    if(!lastPressedState) {
+      debugPrintLn("Button pressed");
+      waitButtonWasPressed = true;    
+    }
+    lastPressedState = true;
+  }
+  else {
+    if(lastPressedState) {
+      debugPrintLn("Button released");
+    }
+    lastPressedState = false;
+  }
+}
+
+
 
 enum Phase { WALK, FINISH_WALKING, DONT_WALK };
-#define WALK_DURATION 5000
-#define FINISH_WALKING_DURATION 15000
-#define DONT_WALK_DURATION 15000
+#define WALK_DURATION 16000
+#define FINISH_WALKING_DURATION 35100
+#define DONT_WALK_DURATION 20000
 
 
-Phase currentPhase = FINISH_WALKING;
+Phase currentPhase = DONT_WALK;
 void loop() {
+  //checkActPin();
+  updateWaitButtonPressedState();
   if(shouldChangePhases()) {
      changePhases();
      debugPrintLn("changed to phase: %d", currentPhase);    
@@ -95,44 +156,86 @@ void loop() {
     case DONT_WALK: dontWalkPhase(); break;
   }
 }
-
+#define BEEP_DELAY 2000
+unsigned long lastBeepTime;
 void initWalkPhase() {
    powerHand(false);
    powerMan(true);
-  
+   playSound(beginCrossingVoice);
+   lastBeepTime = millis();
 }
 void walkPhase() {
-  
+  if(millis() - lastBeepTime > BEEP_DELAY) {
+    playSound(beep1);
+    lastBeepTime = millis();
+  }
 }
 
 unsigned long lastFlipTime;
-#define FLIP_DELAY 498;
+#define FLIP_DELAY 498
 boolean handIsFlippedOn = false;
 
-
+#define START_PHASE_DELAY 4000
+unsigned long initPhaseTime;
 void initFinishWalkingPhase() {
   powerHand(false);
   powerMan(false);
   handIsFlippedOn = false;
   lastFlipTime = 0;
+  initPhaseTime = millis();
+  playSound( finCrossingVoice );
+  
 }
 
 void finishWalkingPhase() {
+ 
   boolean shouldFlip =  millis() - lastFlipTime > FLIP_DELAY;
   if(shouldFlip) {
       powerHand(!handIsFlippedOn); 
       handIsFlippedOn = !handIsFlippedOn;
       lastFlipTime = millis();
   }
+
+  if(waitButtonWasPressed) {
+    
+     playSound(nextWaitButtonSound());
+     lastBeepTime = millis();   
+  }
+  
+  if(millis() - lastBeepTime > BEEP_DELAY && millis() - initPhaseTime > START_PHASE_DELAY ) {
+    if(playSound(beep2)) {
+       lastBeepTime = millis();      
+    }
+  }
+
+  
 }
 
 void initDontWalkPhase() {
   powerHand(true);
   powerMan(false);
-  
+  lastFlipTime = 0;
+  lastBeepTime = millis();
 }
+
+int waitSoundIdx=0;
+char* nextWaitButtonSound() {
+  return waitVoices[ waitSoundIdx++ % 4 ];
+}
+
+
 void dontWalkPhase() {
-  
+  if(waitButtonWasPressed) {
+     playSound(nextWaitButtonSound());
+     lastBeepTime = millis();    
+  }
+
+
+  if(millis() - lastBeepTime > BEEP_DELAY) {
+    if(playSound(beep3)) {
+      lastBeepTime = millis();  
+    }
+  }
 }
 
 
@@ -164,4 +267,3 @@ void changePhases() {
       break; 
   }
 }
-
