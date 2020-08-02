@@ -48,6 +48,7 @@ boolean playSound(char* soundFile) {
   
   if(!sfx.playTrack(soundFile)) {
     debugPrintLn("failed to play sound %s ", soundFile);
+    sfx.reset();
     return false;
   }
   return true;
@@ -58,6 +59,7 @@ void safeStop() {
   if (isPlaying == LOW) {
     debugPrintLn("trying to stop sounds");
     if(!sfx.stop()) {
+        sfx.reset();
         debugPrintLn("stop cmd failed");  
     }
   }
@@ -188,11 +190,13 @@ void initFinishWalkingPhase() {
   powerMan(false);
   handIsFlippedOn = false;
   lastFlipTime = 0;
+  lastBeepTime = millis();
   initPhaseTime = millis();
   playSound( finCrossingVoice );
   
 }
 
+#define FINISH_CROSSING_BEEP 1000
 void finishWalkingPhase() {
  
   boolean shouldFlip =  millis() - lastFlipTime > FLIP_DELAY;
@@ -203,12 +207,12 @@ void finishWalkingPhase() {
   }
 
   if(waitButtonWasPressed) {
-    
+  
      playSound(nextWaitButtonSound());
      lastBeepTime = millis();   
   }
   
-  if(millis() - lastBeepTime > BEEP_DELAY && millis() - initPhaseTime > START_PHASE_DELAY ) {
+  if(millis() - lastBeepTime > FINISH_CROSSING_BEEP && millis() - initPhaseTime > START_PHASE_DELAY ) {
     if(playSound(beep2)) {
        lastBeepTime = millis();      
     }
